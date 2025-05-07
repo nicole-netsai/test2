@@ -6,8 +6,14 @@ import pandas as pd
 import plotly.express as px
 import sqlite3
 from sqlite3 import Error
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.preprocessing import image
+import os
+from PIL import Image
+import matplotlib.pyplot as plt
 
-# Database Setup
+# Database Setup (unchanged)
 def create_connection():
     """Create a database connection"""
     conn = None
@@ -71,6 +77,36 @@ def initialize_database():
 # Initialize the database
 initialize_database()
 
+# Load the parking spot detection model (from the Jupyter notebook)
+@st.cache_resource
+def load_model():
+    try:
+        # Load the pre-trained model (in a real app, you would load your actual trained model)
+        model = tf.keras.models.load_model('parking_model.h5')  # Replace with your model path
+        return model
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        return None
+
+model = load_model()
+
+# Function to classify parking spots (from the Jupyter notebook)
+def classify_parking_spot(img_path, model):
+    """Classify if a parking spot is occupied or empty"""
+    try:
+        img = image.load_img(img_path, target_size=(180, 180))
+        img_array = image.img_to_array(img)
+        img_array = np.expand_dims(img_array, axis=0)
+        
+        predictions = model.predict(img_array)
+        score = predictions[0][0]
+        
+        # Assuming binary classification: 0=Empty, 1=Occupied
+        return "Occupied" if score > 0.5 else "Empty", float(score)
+    except Exception as e:
+        st.error(f"Error classifying image: {e}")
+        return "Error", 0.0
+
 # App Configuration
 st.set_page_config(
     page_title="University Smart Parking System",
@@ -79,7 +115,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Database Operations
+# Database Operations (unchanged)
 def get_parking_lots():
     """Get all parking lots from database"""
     conn = create_connection()
@@ -206,7 +242,7 @@ def initialize_sample_data():
 # Initialize sample data if needed
 initialize_sample_data()
 
-# UI Components (updated to use database)
+# UI Components (updated with parking spot detection)
 def show_parking_map():
     """Interactive campus parking map"""
     parking_data = get_parking_lots()
@@ -278,15 +314,34 @@ def parking_lot_card(lot):
                     # Display location details
                     st.write(f"**Location:** {lot['location']}")
                     
-                    # Estimated time calculation
-                    st.subheader("Estimated Travel Time")
-                    current_location = st.text_input("Enter your current location:", 
-                                                   "Current Campus Building", key=f"loc_{lot['id']}")
+                    # Parking spot detection
+                    st.subheader("Parking Spot Detection")
+                    uploaded_file = st.file_uploader("Upload parking spot image", 
+                                                   type=["jpg", "jpeg", "png"],
+                                                   key=f"upload_{lot['id']}")
                     
-                    if st.button("Calculate Travel Time", key=f"time_{lot['id']}"):
-                        # In a real implementation, you would use Google Maps API
-                        travel_time = random.randint(5, 15)
-                        st.success(f"Estimated driving time: {travel_time} minutes")
+                    if uploaded_file is not None:
+                        # Save the uploaded file
+                        image_path = f"temp_{lot['id']}.jpg"
+                        with open(image_path, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        
+                        # Classify the parking spot
+                        classification, confidence = classify_parking_spot(image_path, model)
+                        
+                        # Display results
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.image(uploaded_file, caption="Uploaded Parking Spot", use_column_width=True)
+                        with col2:
+                            st.write("### Detection Results")
+                            if classification == "Occupied":
+                                st.error(f"🚗 Occupied ({confidence*100:.1f}% confidence)")
+                            else:
+                                st.success(f"🅿️ Empty ({confidence*100:.1f}% confidence)")
+                        
+                        # Clean up
+                        os.remove(image_path)
 
         with btn_col2:
             if st.button("🗺️ Get Directions", key=f"dir_{lot['id']}"):
@@ -427,7 +482,7 @@ def main():
         
         st.success("Admin access granted")
         
-        tab1, tab2 = st.tabs(["Parking Status", "Analytics"])
+        tab1, tab2, tab3 = st.tabs(["Parking Status", "Analytics", "Spot Detection"])
         
         with tab1:
             st.subheader("Manage Parking Lots")
@@ -470,10 +525,38 @@ def main():
                 st.metric("Total Campus Capacity", sum(lot['capacity'] for lot in parking_lots))
                 st.metric("Current Utilization", 
                          f"{sum(lot['occupied'] for lot in parking_lots)/sum(lot['capacity'] for lot in parking_lots)*100:.1f}%")
+        
+        with tab3:
+            st.subheader("Parking Spot Detection")
+            
+            # Upload image for classification
+            uploaded_file = st.file_uploader("Upload parking spot image", type=["jpg", "jpeg", "png"])
+            
+            if uploaded_file is not None:
+                # Display the uploaded image
+                st.image(uploaded_file, caption="Uploaded Parking Spot", use_column_width=True)
+                
+                # Save the uploaded file temporarily
+                image_path = "temp_upload.jpg"
+                with open(image_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                
+                # Classify the parking spot
+                classification, confidence = classify_parking_spot(image_path, model)
+                
+                # Display results
+                st.write("### Detection Results")
+                if classification == "Occupied":
+                    st.error(f"🚗 Occupied ({confidence*100:.1f}% confidence)")
+                else:
+                    st.success(f"🅿️ Empty ({confidence*100:.1f}% confidence)")
+                
+                # Clean up
+                os.remove(image_path)
 
     # Footer
     st.markdown("---")
-    st.caption("© 2023 University Campus Parking System | v1.0")
+    st.caption("© 2023 University Campus Parking System | v2.0 (with AI Detection)")
 
 if __name__ == "__main__":
     main()

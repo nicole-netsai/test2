@@ -1,1 +1,10 @@
-streamlit>=1.26.0
+streamlit>=1.26.import streamlit as st
+import random
+import time
+from datetime import datetime
+import pandas as pd
+import plotly.express as px
+import sqlite3
+from sqlite3 import Error
+
+
